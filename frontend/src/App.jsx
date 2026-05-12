@@ -1,16 +1,12 @@
 /**
- * App.jsx
- * -------
  * Root component. Owns the data-fetching loop and passes data down
  * to every child component as props.
  *
  * Data flow
- * ---------
  * App → fetches /metrics/live every 2 s → passes `metrics` to children
  * App → fetches /metrics/history every 2 s → passes `history` to LiveChart
  *
- * Layout (top to bottom)
- * -----------------------
+ * Layout
  * <Header />
  * <StatsBar />
  * <LiveChart />   <TestPanel />      (two-column grid)
@@ -35,20 +31,27 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  // ── Data fetching ────────────────────────────────────────────────────────
+  // Data fetching 
   const refresh = useCallback(async () => {
+  try {
+    const metricsResponse = await fetchMetrics()
+    setMetrics(metricsResponse)
+
     try {
-      const [m, h] = await Promise.all([fetchMetrics(), fetchHistory()])
-      setMetrics(m)
-      setHistory(h.history ?? [])
-      setError(null)
-    } catch (err) {
-      setError('Cannot reach backend. Is Docker running?')
-      console.error('Fetch error:', err)
-    } finally {
-      setLoading(false)
+      const historyResponse = await fetchHistory()
+      setHistory(historyResponse.history ?? [])
+    } catch (historyError) {
+      console.error('History fetch failed:', historyError)
     }
-  }, [])
+
+    setError(null)
+  } catch (err) {
+    setError('Cannot reach backend.')
+    console.error('Fetch error:', err)
+  } finally {
+    setLoading(false)
+  }
+}, [])
 
   useEffect(() => {
     refresh()
@@ -57,7 +60,7 @@ export default function App() {
     return () => clearInterval(interval)
   }, [refresh])
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  // Render
   return (
     <div className="min-h-screen bg-gray-950 text-white">
 
@@ -72,10 +75,10 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Row 1: Stats cards ──────────────────────────────────────── */}
+        {/* Row 1: Stats cards */}
         <StatsBar metrics={metrics} loading={loading} />
 
-        {/* ── Row 2: Chart + Test Panel ───────────────────────────────── */}
+        {/* Row 2: Chart + Test Panel */}
         <div className="grid lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2">
             <LiveChart history={history} />
@@ -85,10 +88,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── Row 3: Users table ──────────────────────────────────────── */}
+        {/* Row 3: Users table */}
         <UsersTable metrics={metrics} onRefresh={refresh} />
 
-        {/* ── Row 4: Admin panel ──────────────────────────────────────── */}
+        {/* Row 4: Admin panel */}
         <AdminPanel onRefresh={refresh} />
 
       </main>
