@@ -1,0 +1,100 @@
+version: "3.9"
+# All services in the distributed rate limiter stack.
+#
+# Start everything with:   docker-compose up --build
+# Stop everything with:    docker-compose down
+#
+# After startup the following ports are available on your machine:
+#   http://localhost:8001  →  FastAPI backend instance 1
+#   http://localhost:8002  →  FastAPI backend instance 2
+#   http://localhost:3000  →  React dashboard
+#   localhost:6379         →  Redis (internal, not exposed by default)
+
+services:
+
+  # Redis 
+  redis:
+    image: redis:7-alpine
+    container_name: redis-main
+    # Persist data to a named volume so it survives container restarts
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+    # Health-check so dependent services wait until Redis is truly ready
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Backend instance 1 
+  backend-1:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend-instance-1
+    ports:
+      - "8001:8000"          # host port 8001 -> container port 8000
+    environment:
+      - REDIS_HOST=redis     # "redis" resolves to the redis service above
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - INSTANCE_ID=instance-1
+      - APP_ENV=development
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+    # Restart unless explicitly stopped
+    restart: unless-stopped
+
+  # Backend instance 2 
+  # Identical to instance-1 but on a different host port.
+  # BOTH instances point to the SAME redis container → shared state.
+  # This is the key property that makes rate limiting distributed.
+  backend-2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend-instance-2
+    ports:
+      - "8002:8000"          # host port 8002 -> container port 8000
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - INSTANCE_ID=instance-2
+      - APP_ENV=development
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # React frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    ports:
+      - "3000:80"            # Nginx inside the container serves on port 80
+    depends_on:
+      - backend-1
+    networks:
+      - app-network
+    restart: unless-stopped
+
+# Shared Docker network — all services can reach each other by service name
+
+networks:
+  app-network:
+    driver: bridge
+
+# Named volume for Redis persistence
+
+volumes:
+  redis-data:
